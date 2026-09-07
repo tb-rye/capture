@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E56A0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Capture">
+<title>Capture</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#F4F5F2; --panel:#FFFFFF; --ink:#1B2330; --ink-2:#4A5563; --ink-3:#8A93A0;
+  --rule:#DDE1DC; --accent:#1E56A0; --accent-ink:#FFFFFF; --rec:#C8102E;
+  --ok:#2C7A4B; --warn:#9A6200; --chip:#E9EDE7; --chip-on:#1E56A0;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#12171D; --panel:#1B222A; --ink:#E8ECF0; --ink-2:#B5BEC8; --ink-3:#7F8A96;
+    --rule:#2B343E; --accent:#6FA3F0; --accent-ink:#0E1620; --rec:#F0475E;
+    --ok:#6CC08B; --warn:#E0B24A; --chip:#242D37; --chip-on:#6FA3F0; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+.screen{display:none;padding:16px 16px 24px;max-width:560px;margin:0 auto}
+.screen.active{display:block}
+header.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+header.top h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.01em}
+.who{font-size:13px;color:var(--ink-3)}
+.status{font-size:13px;color:var(--ink-3);display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.dot.off{background:var(--warn)}
+
+/* record */
+.recwrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:8px 0 14px}
+.rec{width:132px;height:132px;border-radius:50%;background:var(--accent);color:var(--accent-ink);
+  display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;letter-spacing:.02em;
+  box-shadow:0 6px 20px rgba(0,0,0,.18);transition:transform .08s ease,background .2s;user-select:none}
+.rec:active{transform:scale(.97)}
+.rec.on{background:var(--rec);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(200,16,46,.35)}70%{box-shadow:0 0 0 18px rgba(200,16,46,0)}100%{box-shadow:0 0 0 0 rgba(200,16,46,0)}}
+.hint{font-size:13px;color:var(--ink-3);text-align:center;min-height:18px}
+.transcript{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;min-height:72px;
+  font-size:16px;white-space:pre-wrap;word-break:break-word}
+.transcript .interim{color:var(--ink-3)}
+textarea.text{width:100%;min-height:72px;resize:vertical;background:var(--panel);border:1px solid var(--rule);
+  border-radius:10px;padding:12px;margin-top:10px}
+.attach{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.att{display:flex;align-items:center;gap:6px;background:var(--chip);border-radius:8px;padding:6px 10px;font-size:13px}
+.att button{color:var(--ink-3);font-size:16px;line-height:1}
+.row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chip{background:var(--chip);border-radius:999px;padding:7px 13px;font-size:14px;border:1px solid transparent}
+.chip.on{background:var(--chip-on);color:var(--accent-ink)}
+.chip.today.on{background:var(--warn);color:#fff}
+.actions{display:flex;gap:10px;margin-top:16px}
+.btn{flex:1;padding:14px;border-radius:10px;background:var(--panel);border:1px solid var(--rule);font-weight:600;text-align:center}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn.small{flex:0 0 auto;padding:10px 14px;font-weight:500}
+.btn:disabled{opacity:.5}
+.iconbtn{width:44px;height:44px;border-radius:10px;background:var(--panel);border:1px solid var(--rule);display:flex;align-items:center;justify-content:center}
+.iconbtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;
+  transition:opacity .2s;max-width:90vw;text-align:center;z-index:20}
+.toast.show{opacity:1}
+
+/* recent */
+.item{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px;margin-bottom:10px}
+.item .meta{font-size:12px;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+.item .body{white-space:pre-wrap;word-break:break-word;font-size:15px}
+.item .outcome{font-size:13px;color:var(--ink-2);margin-top:6px;border-top:1px solid var(--rule);padding-top:6px}
+.pill{display:inline-block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor}
+.pill.pending{color:var(--warn)}.pill.saved{color:var(--ok)}.pill.done{color:var(--accent)}
+.item .del{font-size:13px;color:var(--ink-3);margin-top:6px}
+
+/* settings */
+.sec{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:14px;margin-bottom:12px}
+.sec h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;font-weight:600}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.field label{font-size:14px;color:var(--ink-2)}
+.field input[type=text],.field input[type=url],.field select{padding:10px;border:1px solid var(--rule);border-radius:8px;background:var(--bg)}
+.seg{display:flex;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.seg button{flex:1;padding:10px;background:var(--bg)}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.switch{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--rule)}
+.switch:first-of-type{border-top:0}
+.switch input{width:22px;height:22px}
+.ro{font-size:14px;color:var(--ink-2)}
+.ro dt{font-size:12px;color:var(--ink-3);margin-top:8px}
+.ro dd{margin:0}
+a{color:var(--accent)}
+
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--rule);
+  display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:10}
+nav.bottom button{flex:1;padding:12px 0 10px;font-size:12px;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;gap:3px}
+nav.bottom button.on{color:var(--accent)}
+nav.bottom svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.setupnote{background:var(--panel);border:1px dashed var(--rule);border-radius:10px;padding:12px;font-size:14px;color:var(--ink-2);margin-bottom:12px}
+@media (prefers-reduced-motion:reduce){.rec.on{animation:none}}
+</style>
+</head>
+<body>
+
+<!-- CAPTURE -->
+<section id="s-capture" class="screen active">
+  <header class="top">
+    <h1>Capture</h1>
+    <div class="status"><span id="netdot" class="dot"></span><span id="netlabel">Online</span><span id="pendingcount"></span></div>
+  </header>
+  <div id="setupnote" class="setupnote" hidden>Not connected yet. Open <b>Settings</b> and paste the endpoint URL and token from your setup guide.</div>
+
+  <div class="recwrap">
+    <button id="rec" class="rec" aria-label="Record">Tap to talk</button>
+    <div id="hint" class="hint">Hold for audio</div>
+  </div>
+
+  <div id="transcript" class="transcript" hidden></div>
+  <textarea id="text" class="text" placeholder="Or type it…" rows="2"></textarea>
+
+  <div id="attach" class="attach"></div>
+
+  <div class="row">
+    <label class="iconbtn" title="Photo">
+      <input id="camera" type="file" accept="image/*" capture="environment" hidden>
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    </label>
+    <label class="iconbtn" title="Attach file">
+      <input id="file" type="file" accept="image/*,audio/*,application/pdf,text/*" multiple hidden>
+      <svg viewBox="0 0 24 24"><path d="M8 12l7-7a3 3 0 014 4l-9 9a5 5 0 01-7-7l8-8"/></svg>
+    </label>
+    <span class="hint" style="text-align:left">Photo · file</span>
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <div class="actions">
+    <button id="clear" class="btn small">Clear</button>
+    <button id="send" class="btn primary">Send</button>
+  </div>
+</section>
+
+<!-- RECENT -->
+<section id="s-recent" class="screen">
+  <header class="top"><h1>Recent</h1><button id="refresh" class="btn small">Refresh</button></header>
+  <div id="recentlist"></div>
+</section>
+
+<!-- SETTINGS -->
+<section id="s-settings" class="screen">
+  <header class="top"><h1>Settings</h1></header>
+
+  <div class="sec">
+    <h2>This device</h2>
+    <div class="field"><label>I am</label>
+      <div class="seg" id="whoSeg"><button data-v="Tina">Tina</button><button data-v="Ananth">Ananth</button></div></div>
+    <div class="field"><label>Voice sends</label>
+      <div class="seg" id="voiceSeg"><button data-v="text">Text</button><button data-v="audio">Audio</button><button data-v="both">Both</button></div></div>
+    <div class="switch"><span>Start recording when the app opens</span><input type="checkbox" id="autoStart"></div>
+    <div class="switch"><span>Keep audio when the transcript looks weak</span><input type="checkbox" id="keepWeak"></div>
+    <div class="switch"><span>Vibrate on send</span><input type="checkbox" id="haptic"></div>
+  </div>
+
+  <div class="sec">
+    <h2>Connection</h2>
+    <div class="field"><label>Endpoint URL</label><input type="url" id="endpoint" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div class="field"><label>Token</label><input type="text" id="token" placeholder="from the Settings workbook"></div>
+    <button id="testconn" class="btn small">Test connection</button> <span id="testresult" class="ro"></span>
+  </div>
+
+  <div class="sec">
+    <h2>Chips on the capture screen</h2>
+    <div id="chipPick" class="chips" style="margin-top:0"></div>
+    <p class="ro" style="margin:10px 0 0">Tags come from the shared Settings workbook. Choose which ones show here.</p>
+  </div>
+
+  <div class="sec">
+    <h2>Shared settings</h2>
+    <dl class="ro" id="sharedRO"><dd>Not loaded yet.</dd></dl>
+    <p class="ro" style="margin-top:10px"><a id="wbLink" href="#" target="_blank" rel="noopener">Open the Settings workbook</a></p>
+  </div>
+</section>
+
+<nav class="bottom">
+  <button data-s="capture" class="on"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>Capture</button>
+  <button data-s="recent"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Recent</button>
+  <button data-s="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</button>
+</nav>
+
+<div id="toast" class="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const DEFAULT_TAGS = ['To-do','Kids','Household','Family','Work','TPT','Career','Idea','Reading'];
+
+/* ---------- device settings ---------- */
+const S = {
+  get(){ try{ return Object.assign({who:'',voice:'text',autoStart:true,keepWeak:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}, JSON.parse(localStorage.getItem('capture.settings')||'{}')); }catch(e){ return {who:'',voice:'text',autoStart:true,keepWeak:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}; } },
+  set(patch){ const cur=S.get(); Object.assign(cur,patch); try{ localStorage.setItem('capture.settings', JSON.stringify(cur)); }catch(e){} return cur; }
+};
+
+/* ---------- IndexedDB outbox ---------- */
+const DB = {
+  open(){ return new Promise((res,rej)=>{ const r=indexedDB.open('capture',2);
+    r.onupgradeneeded=e=>{ const d=e.target.result; if(!d.objectStoreNames.contains('outbox')) d.createObjectStore('outbox',{keyPath:'clientId'}); if(!d.objectStoreNames.contains('share')) d.createObjectStore('share',{keyPath:'id'}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); },
+  async put(store,val){ const d=await DB.open(); return new Promise((res,rej)=>{ const t=d.transaction(store,'readwrite'); t.objectStore(store).put(val); t.oncomplete=res; t.onerror=()=>rej(t.error); }); },
+  async del(store,key){ const d=await DB.open(); return new Promise((res,rej)=>{ const t=d.transaction(store,'readwrite'); t.objectStore(store).delete(key); t.oncomplete=res; t.onerror=()=>rej(t.error); }); },
+  async all(store){ const d=await DB.open(); return new Promise((res,rej)=>{ const t=d.transaction(store,'readonly'); const q=t.objectStore(store).getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
+};
+
+/* ---------- helpers ---------- */
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(16).slice(2));
+const toast = (m,ms=2400) => { const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),ms); };
+const blobToB64 = blob => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(blob); });
+async function shrinkImage(file, max=1600){
+  if(!file.type.startsWith('image/')) return file;
+  try{
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max/Math.max(bmp.width,bmp.height));
+    if(scale===1 && file.size < 900000) return file;
+    const c=document.createElement('canvas'); c.width=Math.round(bmp.width*scale); c.height=Math.round(bmp.height*scale);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',.82));
+    return new File([blob], file.name.replace(/\.\w+$/,'')+'.jpg', {type:'image/jpeg'});
+  }catch(e){ return file; }
+}
+function vibrate(){ if(S.get().haptic && navigator.vibrate) navigator.vibrate(30); }
+
+/* ---------- state ---------- */
+let rec = null;          // MediaRecorder
+let recChunks = [];
+let recStream = null;
+let sr = null;           // SpeechRecognition
+let finalText = '';      // recognized final text
+let interimText = '';
+let recording = false;
+let forceAudio = false;
+let pressTimer = null;
+let attachments = [];    // {file, name}
+let selectedTags = new Set();
+let today = false;
+let sourceApp = '';
+let inputType = 'text';
+
+/* ---------- chips ---------- */
+function visibleChips(){ const s=S.get(); const all=(s.shared&&s.shared.tags)||DEFAULT_TAGS; const pick=s.chips; return all.filter(t=>!pick||pick.includes(t)); }
+function renderChips(){
+  const box=$('#chips'); box.innerHTML='';
+  visibleChips().forEach(t=>{ const b=document.createElement('button'); b.className='chip'+(selectedTags.has(t)?' on':''); b.textContent=t;
+    b.onclick=()=>{ selectedTags.has(t)?selectedTags.delete(t):selectedTags.add(t); renderChips(); }; box.appendChild(b); });
+  const td=document.createElement('button'); td.className='chip today'+(today?' on':''); td.textContent='Today'; td.onclick=()=>{today=!today;renderChips();}; box.appendChild(td);
+}
+
+/* ---------- speech ---------- */
+function startSR(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR) return false;
+  sr = new SR(); sr.continuous=true; sr.interimResults=true; sr.lang='en-US';
+  sr.onresult = e => { let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; if(r.isFinal) finalText += (finalText?' ':'') + r[0].transcript.trim(); else interim += r[0].transcript; } interimText=interim; renderTranscript(); };
+  sr.onerror = e => { if(e.error==='no-speech' || e.error==='aborted') return; $('#hint').textContent='Speech: '+e.error; };
+  sr.onend = () => { if(recording) { try{ sr.start(); }catch(e){} } };
+  try{ sr.start(); return true; }catch(e){ return false; }
+}
+function stopSR(){ if(sr){ const s=sr; sr=null; try{ s.onend=null; s.stop(); }catch(e){} } }
+function renderTranscript(){ const t=$('#transcript'); t.hidden=false; t.innerHTML = escapeHtml(finalText) + (interimText?' <span class="interim">'+escapeHtml(interimText)+'</span>':''); }
+function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+/* ---------- audio ---------- */
+async function startAudio(){
+  try{
+    recStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(recStream, mime?{mimeType:mime}:{}); recChunks=[];
+    rec.ondataavailable = e => { if(e.data.size) recChunks.push(e.data); };
+    rec.start(1000); return true;
+  }catch(e){ $('#hint').textContent='Microphone blocked'; return false; }
+}
+function stopAudio(){ return new Promise(res=>{ if(!rec){ res(null); return; } const r=rec; rec=null; r.onstop=()=>{ const blob=new Blob(recChunks,{type:r.mimeType||'audio/webm'}); recChunks=[]; if(recStream){ recStream.getTracks().forEach(t=>t.stop()); recStream=null; } res(blob); }; try{ r.stop(); }catch(e){ res(null); } }); }
+
+/* ---------- record button ---------- */
+async function startRecording(force){
+  if(recording) return;
+  const mode = S.get().voice;
+  forceAudio = !!force;
+  recording = true; inputType='voice';
+  finalText=''; interimText=''; renderTranscript();
+  $('#rec').classList.add('on'); $('#rec').textContent='Stop';
+  $('#hint').textContent = forceAudio ? 'Recording audio' : (mode==='audio' ? 'Recording audio' : 'Listening');
+  const wantAudio = forceAudio || mode==='audio' || mode==='both' || S.get().keepWeak;
+  const wantText = !forceAudio && mode!=='audio';
+  if(wantText) startSR();
+  if(wantAudio) await startAudio();
+  vibrate();
+}
+async function stopRecording(){
+  if(!recording) return;
+  recording=false;
+  $('#rec').classList.remove('on'); $('#rec').textContent='Tap to talk'; $('#hint').textContent='Hold for audio';
+  stopSR();
+  const blob = await stopAudio();
+  const mode = S.get().voice;
+  const text = finalText.trim();
+  let keepAudio = forceAudio || mode==='audio' || mode==='both';
+  if(!keepAudio && S.get().keepWeak && blob){ const weak = text.length < 12 || /\b(\w+)\s+\1\s+\1\b/i.test(text); if(weak) keepAudio=true; }
+  if(keepAudio && blob && blob.size>0){ const ext = (blob.type.includes('ogg')?'ogg':blob.type.includes('mp4')?'m4a':'webm'); addAttachment(new File([blob],'voice-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext,{type:blob.type}), true); }
+  if(text) { const ta=$('#text'); ta.value = (ta.value?ta.value+'\n':'') + text; }
+  finalText=''; interimText=''; $('#transcript').hidden=true;
+  vibrate();
+  if(!text && !keepAudio) toast('Nothing heard');
+}
+const recBtn=$('#rec');
+recBtn.addEventListener('pointerdown', e => { if(recording) return; pressTimer=setTimeout(()=>{ pressTimer=null; startRecording(true); },450); });
+recBtn.addEventListener('pointerup', e => { if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; recording?stopRecording():startRecording(false); } else if(recording && forceAudio){ /* long-press: release keeps recording; tap again to stop */ } });
+recBtn.addEventListener('click', e => { if(recording && forceAudio && !pressTimer){ stopRecording(); } });
+recBtn.addEventListener('pointerleave', () => { if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } });
+
+/* ---------- attachments ---------- */
+function addAttachment(file, isVoice){ attachments.push({file, isVoice:!!isVoice}); renderAttach(); }
+function renderAttach(){ const box=$('#attach'); box.innerHTML=''; attachments.forEach((a,i)=>{ const d=document.createElement('div'); d.className='att'; d.innerHTML='<span>'+escapeHtml(a.isVoice?'🎙 '+(a.file.name):a.file.name)+'</span>'; const x=document.createElement('button'); x.textContent='×'; x.onclick=()=>{attachments.splice(i,1);renderAttach();}; d.appendChild(x); box.appendChild(d); }); }
+$('#camera').addEventListener('change', async e => { for(const f of e.target.files){ addAttachment(await shrinkImage(f)); } inputType='camera'; e.target.value=''; });
+$('#file').addEventListener('change', async e => { for(const f of e.target.files){ addAttachment(await shrinkImage(f)); } if(inputType==='text') inputType='share'; e.target.value=''; });
+
+/* ---------- send ---------- */
+function parseSpokenTags(text){
+  // "tag kids and to-do pick up Naya at 5" -> tags [Kids, To-do], text "pick up Naya at 5"
+  const known=(S.get().shared&&S.get().shared.tags)||DEFAULT_TAGS;
+  const norm=x=>x.toLowerCase().replace(/[^a-z0-9]/g,'');
+  const map=new Map(known.map(k=>[norm(k),k]));
+  const tags=[]; let t=text.trim();
+  const m=t.match(/^(?:tag|tags)\s+/i);
+  if(m){
+    const tokens=t.slice(m[0].length).split(/\s+/); let i=0;
+    while(i<tokens.length){
+      const nw=norm(tokens[i]);
+      if(!nw||nw==='and'||nw==='plus'||nw==='also'){ i++; continue; }
+      if(i+1<tokens.length && map.has(norm(tokens[i]+tokens[i+1]))){ tags.push(map.get(norm(tokens[i]+tokens[i+1]))); i+=2; continue; }
+      if(map.has(nw)){ tags.push(map.get(nw)); i++; continue; }
+      break;
+    }
+    if(tags.length) t=tokens.slice(i).join(' ').replace(/^[,.:;]\s*/,'');
+  }
+  const hash=t.match(/#([a-z0-9\-]+)/gi);
+  if(hash){ hash.forEach(h=>{ const k=norm(h.slice(1)); tags.push(map.get(k)||h.slice(1)); }); t=t.replace(/#([a-z0-9\-]+)/gi,'').replace(/\s{2,}/g,' ').trim(); }
+  return {text:t, tags};
+}
+function normalizeTag(x){ const all=(S.get().shared&&S.get().shared.tags)||DEFAULT_TAGS; const hit=all.find(a=>a.toLowerCase().replace(/[^a-z0-9]/g,'')===x.toLowerCase().replace(/[^a-z0-9]/g,'')); return hit||x; }
+
+$('#send').addEventListener('click', async () => {
+  if(recording) await stopRecording();
+  const raw = $('#text').value.trim();
+  if(!raw && attachments.length===0){ toast('Nothing to send'); return; }
+  const s=S.get();
+  if(!s.who){ toast('Pick who you are in Settings'); show('settings'); return; }
+  const parsed = parseSpokenTags(raw);
+  const tags = Array.from(new Set([...selectedTags, ...parsed.tags.map(normalizeTag)]));
+  const item = { clientId:uuid(), createdAt:new Date().toISOString(), tz:Intl.DateTimeFormat().resolvedOptions().timeZone, who:s.who, inputType, sourceApp, tags, today, text:parsed.text, files:[] , device:navigator.userAgent.slice(0,80) };
+  $('#send').disabled=true;
+  try{
+    for(const a of attachments){ item.files.push({name:a.file.name, mime:a.file.type||'application/octet-stream', size:a.file.size, isVoice:a.isVoice, base64: await blobToB64(a.file)}); }
+  }catch(e){ toast('Could not read attachment'); $('#send').disabled=false; return; }
+  await DB.put('outbox', {clientId:item.clientId, item, status:'pending', createdAt:item.createdAt});
+  resetCapture();
+  $('#send').disabled=false;
+  vibrate();
+  const r = await flushOutbox();
+  updatePending();
+  if(r && r.lastResult){ const fl=r.lastResult.fastLane; toast(fl && fl.summary ? 'Saved · '+fl.summary : 'Saved', fl&&fl.summary?4200:2000); }
+  else if(!navigator.onLine) toast('Saved on this phone · will send when online');
+  else toast('Saved · sending');
+});
+$('#clear').addEventListener('click', resetCapture);
+function resetCapture(){ $('#text').value=''; attachments=[]; renderAttach(); selectedTags=new Set(); today=false; sourceApp=''; inputType='text'; finalText=''; interimText=''; $('#transcript').hidden=true; renderChips(); }
+
+/* ---------- network ---------- */
+async function post(payload){
+  const s=S.get(); if(!s.endpoint) throw new Error('no endpoint');
+  payload.token = s.token;
+  const body = JSON.stringify(payload);
+  let r;
+  try{
+    r = await fetch(s.endpoint, {method:'POST', body, headers:{'Content-Type':'text/plain;charset=utf-8'}, redirect:'follow'});
+  }catch(netErr){
+    // The browser refused to read the response (CORS) or the network dropped. If we are online,
+    // the request itself usually went through: resend once fire-and-forget and treat as sent.
+    if(!navigator.onLine) throw netErr;
+    await fetch(s.endpoint, {method:'POST', body, mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'}});
+    return {ok:true, opaque:true};
+  }
+  const txt = await r.text(); let j={}; try{ j=JSON.parse(txt); }catch(e){ throw new Error('server returned '+r.status); }
+  if(!j.ok) throw new Error(j.error||'server error');
+  return j;
+}
+async function get(params){
+  const s=S.get(); if(!s.endpoint) throw new Error('no endpoint');
+  const u = new URL(s.endpoint); Object.entries(Object.assign({token:s.token},params)).forEach(([k,v])=>u.searchParams.set(k,v));
+  const r = await fetch(u.toString(), {redirect:'follow'}); const j = await r.json(); if(!j.ok) throw new Error(j.error||'server error'); return j;
+}
+let flushing=false;
+async function flushOutbox(){
+  if(flushing || !navigator.onLine) return null; flushing=true; let lastResult=null;
+  try{
+    const items = (await DB.all('outbox')).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+    for(const it of items){
+      try{ const j = await post(Object.assign({action:'capture'}, it.item)); await DB.del('outbox', it.clientId); lastResult=j; }
+      catch(e){ if(e.message==='no endpoint'){ break; } console.warn('send failed', e); break; }
+    }
+  } finally { flushing=false; }
+  updatePending(); return {lastResult};
+}
+async function updatePending(){ const n=(await DB.all('outbox')).length; $('#pendingcount').textContent = n? '· '+n+' pending':''; $('#setupnote').hidden = !!S.get().endpoint; }
+function netState(){ const on=navigator.onLine; $('#netdot').classList.toggle('off',!on); $('#netlabel').textContent=on?'Online':'Offline'; if(on) flushOutbox(); }
+window.addEventListener('online',netState); window.addEventListener('offline',netState);
+
+/* ---------- shared settings ---------- */
+async function loadShared(force){
+  const s=S.get(); if(!s.endpoint) return null;
+  if(!force && s.shared && Date.now()-s.sharedAt < 6*3600*1000) return s.shared;
+  try{ const j=await get({action:'settings'}); S.set({shared:j.settings, sharedAt:Date.now()}); renderShared(); renderChips(); renderChipPick(); return j.settings; }catch(e){ return s.shared; }
+}
+function renderShared(){
+  const sh=S.get().shared; const dl=$('#sharedRO'); if(!sh){ dl.innerHTML='<dd>Not loaded yet.</dd>'; return; }
+  const rows=[['Tags',(sh.tags||[]).join(', ')],['Runs at',(sh.general&&sh.general.runTimes)||''],['Fast-lane window',(sh.general&&sh.general.fastLaneHours)?sh.general.fastLaneHours+' hours':''],['Family calendar',(sh.general&&sh.general.familyCalendar)||''],['File retention',(sh.general&&sh.general.retentionDays)?sh.general.retentionDays+' days':'']];
+  dl.innerHTML=rows.filter(r=>r[1]).map(r=>'<dt>'+escapeHtml(r[0])+'</dt><dd>'+escapeHtml(String(r[1]))+'</dd>').join('');
+  if(sh.workbookUrl) $('#wbLink').href=sh.workbookUrl;
+}
+function renderChipPick(){
+  const s=S.get(); const all=(s.shared&&s.shared.tags)||DEFAULT_TAGS; const pick=s.chips||all; const box=$('#chipPick'); box.innerHTML='';
+  all.forEach(t=>{ const b=document.createElement('button'); b.className='chip'+(pick.includes(t)?' on':''); b.textContent=t; b.onclick=()=>{ const cur=S.get().chips||all.slice(); const i=cur.indexOf(t); i>=0?cur.splice(i,1):cur.push(t); S.set({chips:cur}); renderChipPick(); renderChips(); }; box.appendChild(b); });
+}
+
+/* ---------- recent ---------- */
+async function renderRecent(){
+  const box=$('#recentlist'); box.innerHTML='<div class="ro">Loading…</div>';
+  const pending=await DB.all('outbox'); let remote=[];
+  try{ const j=await get({action:'recent'}); remote=j.items||[]; }catch(e){ if(!S.get().endpoint) { box.innerHTML='<div class="ro">Connect in Settings to see saved captures.</div>'; } }
+  const html=[];
+  pending.slice().reverse().forEach(p=>html.push(itemHtml({createdAt:p.createdAt, who:p.item.who, tags:p.item.tags, text:p.item.text, status:'pending', files:p.item.files.length})));
+  remote.forEach(r=>html.push(itemHtml(r)));
+  box.innerHTML = html.join('') || '<div class="ro">Nothing yet.</div>';
+  box.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ b.disabled=true; try{ await post({action:'delete', id:b.dataset.del}); toast('Deleted'); renderRecent(); }catch(e){ toast('Could not delete'); b.disabled=false; } });
+}
+function itemHtml(r){
+  const d=new Date(r.createdAt); const when=d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  const st = r.status||'saved'; const cls = st==='pending'?'pending':(st==='processed'||st==='fast')?'done':'saved';
+  const canDel = r.id && (Date.now()-d.getTime() < 24*3600*1000);
+  return '<div class="item"><div class="meta"><span>'+escapeHtml(when)+'</span><span>'+escapeHtml(r.who||'')+'</span>'+(r.tags&&r.tags.length?'<span>'+escapeHtml(r.tags.join(', '))+'</span>':'')+(r.files?'<span>'+r.files+' file'+(r.files==1?'':'s')+'</span>':'')+'<span class="pill '+cls+'">'+escapeHtml(st)+'</span></div>'
+    + '<div class="body">'+escapeHtml(r.text||'(no text)')+'</div>'
+    + (r.outcome?'<div class="outcome">'+escapeHtml(r.outcome)+'</div>':'')
+    + (canDel?'<button class="del" data-del="'+escapeHtml(r.id)+'">Delete</button>':'') + '</div>';
+}
+$('#refresh').addEventListener('click', renderRecent);
+
+/* ---------- settings UI ---------- */
+function bindSeg(id,key){ const seg=$(id); seg.querySelectorAll('button').forEach(b=>{ b.classList.toggle('on', S.get()[key]===b.dataset.v); b.onclick=()=>{ S.set({[key]:b.dataset.v}); bindSeg(id,key); }; }); }
+function initSettings(){
+  const s=S.get(); bindSeg('#whoSeg','who'); bindSeg('#voiceSeg','voice');
+  $('#autoStart').checked=s.autoStart; $('#keepWeak').checked=s.keepWeak; $('#haptic').checked=s.haptic;
+  $('#endpoint').value=s.endpoint; $('#token').value=s.token;
+  $('#autoStart').onchange=e=>S.set({autoStart:e.target.checked}); $('#keepWeak').onchange=e=>S.set({keepWeak:e.target.checked}); $('#haptic').onchange=e=>S.set({haptic:e.target.checked});
+  $('#endpoint').onchange=e=>{ S.set({endpoint:e.target.value.trim(), shared:null}); updatePending(); }; $('#token').onchange=e=>S.set({token:e.target.value.trim()});
+  $('#testconn').onclick=async()=>{ $('#testresult').textContent='Testing…'; try{ const j=await get({action:'ping'}); $('#testresult').textContent='Connected'+(j.who?' as '+j.who:''); await loadShared(true); flushOutbox(); }catch(e){ $('#testresult').textContent='Not connected: '+e.message; } };
+  renderChipPick(); renderShared();
+}
+
+/* ---------- share target intake ---------- */
+async function intakeShare(){
+  const u=new URL(location.href); let got=false;
+  if(u.searchParams.get('shared')==='1'){
+    const rows=await DB.all('share');
+    for(const r of rows){ if(r.text||r.title||r.url){ const parts=[r.title,r.text,r.url].filter(Boolean); $('#text').value=parts.join('\n'); } if(r.files){ for(const f of r.files){ addAttachment(await shrinkImage(new File([f.blob],f.name,{type:f.type}))); } } await DB.del('share',r.id); got=true; }
+  }
+  const qs=['title','text','url'].map(k=>u.searchParams.get(k)).filter(Boolean);
+  if(qs.length){ $('#text').value=qs.join('\n'); got=true; }
+  if(got){ inputType='share'; sourceApp=guessSource($('#text').value); history.replaceState(null,'',location.pathname); }
+  return got;
+}
+function guessSource(t){ if(/wa\.me|whatsapp/i.test(t)) return 'WhatsApp'; if(/^https?:\/\//m.test(t)) return 'Link'; return ''; }
+
+/* ---------- nav ---------- */
+function show(name){ document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.id==='s-'+name)); document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('on', b.dataset.s===name)); if(name==='recent') renderRecent(); if(name==='settings') initSettings(); window.scrollTo(0,0); }
+document.querySelectorAll('nav.bottom button').forEach(b=>b.onclick=()=>show(b.dataset.s));
+
+/* ---------- boot ---------- */
+(async function boot(){
+  if('serviceWorker' in navigator){ try{ await navigator.serviceWorker.register('sw.js'); }catch(e){} }
+  renderChips(); netState(); updatePending();
+  const shared = await intakeShare();
+  const s=S.get();
+  if(!s.who || !s.endpoint){ show('settings'); }
+  else if(!shared && s.autoStart && new URL(location.href).searchParams.get('quiet')!=='1'){ setTimeout(()=>startRecording(false),350); }
+  loadShared(false);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) { netState(); } });
+})();
+})();
+</script>
+</body>
+</html>
