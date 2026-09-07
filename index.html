@@ -119,7 +119,7 @@ nav.bottom svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width
 
   <div class="recwrap">
     <button id="rec" class="rec" aria-label="Record">Tap to talk</button>
-    <div id="hint" class="hint">Hold for audio</div>
+    <div id="hint" class="hint">Tap to talk · hold to record audio</div>
   </div>
 
   <div id="transcript" class="transcript" hidden></div>
@@ -163,7 +163,6 @@ nav.bottom svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width
     <div class="field"><label>Voice sends</label>
       <div class="seg" id="voiceSeg"><button data-v="text">Text</button><button data-v="audio">Audio</button><button data-v="both">Both</button></div></div>
     <div class="switch"><span>Start recording when the app opens</span><input type="checkbox" id="autoStart"></div>
-    <div class="switch"><span>Keep audio when the transcript looks weak</span><input type="checkbox" id="keepWeak"></div>
     <div class="switch"><span>Vibrate on send</span><input type="checkbox" id="haptic"></div>
   </div>
 
@@ -203,7 +202,7 @@ const DEFAULT_TAGS = ['To-do','Kids','Household','Family','Work','TPT','Career',
 
 /* ---------- device settings ---------- */
 const S = {
-  get(){ try{ return Object.assign({who:'',voice:'text',autoStart:true,keepWeak:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}, JSON.parse(localStorage.getItem('capture.settings')||'{}')); }catch(e){ return {who:'',voice:'text',autoStart:true,keepWeak:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}; } },
+  get(){ try{ return Object.assign({who:'',voice:'text',autoStart:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}, JSON.parse(localStorage.getItem('capture.settings')||'{}')); }catch(e){ return {who:'',voice:'text',autoStart:true,haptic:true,endpoint:'',token:'',chips:null,shared:null,sharedAt:0}; } },
   set(patch){ const cur=S.get(); Object.assign(cur,patch); try{ localStorage.setItem('capture.settings', JSON.stringify(cur)); }catch(e){} return cur; }
 };
 
@@ -240,6 +239,7 @@ let rec = null;          // MediaRecorder
 let recChunks = [];
 let recStream = null;
 let sr = null;           // SpeechRecognition
+let srFailed = null;     // set when the recognizer cannot run on this device
 let finalText = '';      // recognized final text
 let interimText = '';
 let recording = false;
@@ -266,9 +266,15 @@ function startSR(){
   if(!SR) return false;
   sr = new SR(); sr.continuous=true; sr.interimResults=true; sr.lang='en-US';
   sr.onresult = e => { let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; if(r.isFinal) finalText += (finalText?' ':'') + r[0].transcript.trim(); else interim += r[0].transcript; } interimText=interim; renderTranscript(); };
-  sr.onerror = e => { if(e.error==='no-speech' || e.error==='aborted') return; $('#hint').textContent='Speech: '+e.error; };
-  sr.onend = () => { if(recording) { try{ sr.start(); }catch(e){} } };
-  try{ sr.start(); return true; }catch(e){ return false; }
+  sr.onstart = () => { if(recording) $('#hint').textContent='Listening…'; };
+  sr.onerror = e => {
+    const msgs = {'not-allowed':'Microphone blocked — allow it in Chrome site settings','service-not-allowed':'Speech service blocked','audio-capture':'No microphone available','network':'Speech needs a network connection','no-speech':'Nothing heard yet…','aborted':''};
+    const m = msgs[e.error] !== undefined ? msgs[e.error] : 'Speech error: '+e.error;
+    if(m) $('#hint').textContent=m;
+    if(e.error==='not-allowed' || e.error==='service-not-allowed' || e.error==='audio-capture'){ srFailed = e.error; }
+  };
+  sr.onend = () => { if(recording && !srFailed) { try{ sr.start(); }catch(e){} } };
+  try{ sr.start(); return true; }catch(e){ $('#hint').textContent='Could not start speech: '+e.message; return false; }
 }
 function stopSR(){ if(sr){ const s=sr; sr=null; try{ s.onend=null; s.stop(); }catch(e){} } }
 function renderTranscript(){ const t=$('#transcript'); t.hidden=false; t.innerHTML = escapeHtml(finalText) + (interimText?' <span class="interim">'+escapeHtml(interimText)+'</span>':''); }
@@ -291,37 +297,40 @@ async function startRecording(force){
   if(recording) return;
   const mode = S.get().voice;
   forceAudio = !!force;
-  recording = true; inputType='voice';
+  recording = true; inputType='voice'; srFailed=null;
   finalText=''; interimText=''; renderTranscript();
   $('#rec').classList.add('on'); $('#rec').textContent='Stop';
-  $('#hint').textContent = forceAudio ? 'Recording audio' : (mode==='audio' ? 'Recording audio' : 'Listening');
-  const wantAudio = forceAudio || mode==='audio' || mode==='both' || S.get().keepWeak;
+  const wantAudio = forceAudio || mode==='audio' || mode==='both';
   const wantText = !forceAudio && mode!=='audio';
-  if(wantText) startSR();
-  if(wantAudio) await startAudio();
+  $('#hint').textContent = wantAudio && !wantText ? 'Recording audio' : 'Starting…';
+  if(wantAudio) { const ok = await startAudio(); if(!ok && !wantText){ recording=false; $('#rec').classList.remove('on'); $('#rec').textContent='Tap to talk'; return; } }
+  if(wantText) {
+    const SRok = startSR();
+    if(!SRok && !wantAudio){ $('#hint').textContent='Voice-to-text is not available in this browser — hold the button to record audio instead'; recording=false; $('#rec').classList.remove('on'); $('#rec').textContent='Tap to talk'; return; }
+  }
   vibrate();
 }
 async function stopRecording(){
   if(!recording) return;
   recording=false;
-  $('#rec').classList.remove('on'); $('#rec').textContent='Tap to talk'; $('#hint').textContent='Hold for audio';
+  $('#rec').classList.remove('on'); $('#rec').textContent='Tap to talk'; $('#hint').textContent='Tap to talk · hold to record audio';
   stopSR();
   const blob = await stopAudio();
   const mode = S.get().voice;
   const text = finalText.trim();
-  let keepAudio = forceAudio || mode==='audio' || mode==='both';
-  if(!keepAudio && S.get().keepWeak && blob){ const weak = text.length < 12 || /\b(\w+)\s+\1\s+\1\b/i.test(text); if(weak) keepAudio=true; }
+  const keepAudio = forceAudio || mode==='audio' || mode==='both';
   if(keepAudio && blob && blob.size>0){ const ext = (blob.type.includes('ogg')?'ogg':blob.type.includes('mp4')?'m4a':'webm'); addAttachment(new File([blob],'voice-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext,{type:blob.type}), true); }
   if(text) { const ta=$('#text'); ta.value = (ta.value?ta.value+'\n':'') + text; }
   finalText=''; interimText=''; $('#transcript').hidden=true;
   vibrate();
-  if(!text && !keepAudio) toast('Nothing heard');
+  if(!text && !keepAudio) toast(srFailed ? 'Voice-to-text could not run — hold the button to record audio' : 'Nothing heard — try again, a little closer to the phone', 3200);
 }
 const recBtn=$('#rec');
-recBtn.addEventListener('pointerdown', e => { if(recording) return; pressTimer=setTimeout(()=>{ pressTimer=null; startRecording(true); },450); });
-recBtn.addEventListener('pointerup', e => { if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; recording?stopRecording():startRecording(false); } else if(recording && forceAudio){ /* long-press: release keeps recording; tap again to stop */ } });
-recBtn.addEventListener('click', e => { if(recording && forceAudio && !pressTimer){ stopRecording(); } });
-recBtn.addEventListener('pointerleave', () => { if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } });
+let longPressed=false;
+recBtn.addEventListener('pointerdown', e => { if(recording) return; longPressed=false; pressTimer=setTimeout(()=>{ pressTimer=null; longPressed=true; startRecording(true); },450); });
+['pointerup','pointercancel','pointerleave'].forEach(ev => recBtn.addEventListener(ev, () => { if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } }));
+recBtn.addEventListener('click', e => { if(longPressed){ longPressed=false; return; } recording ? stopRecording() : startRecording(false); });
+recBtn.addEventListener('contextmenu', e => e.preventDefault());
 
 /* ---------- attachments ---------- */
 function addAttachment(file, isVoice){ attachments.push({file, isVoice:!!isVoice}); renderAttach(); }
@@ -463,9 +472,9 @@ $('#refresh').addEventListener('click', renderRecent);
 function bindSeg(id,key){ const seg=$(id); seg.querySelectorAll('button').forEach(b=>{ b.classList.toggle('on', S.get()[key]===b.dataset.v); b.onclick=()=>{ S.set({[key]:b.dataset.v}); bindSeg(id,key); }; }); }
 function initSettings(){
   const s=S.get(); bindSeg('#whoSeg','who'); bindSeg('#voiceSeg','voice');
-  $('#autoStart').checked=s.autoStart; $('#keepWeak').checked=s.keepWeak; $('#haptic').checked=s.haptic;
+  $('#autoStart').checked=s.autoStart; $('#haptic').checked=s.haptic;
   $('#endpoint').value=s.endpoint; $('#token').value=s.token;
-  $('#autoStart').onchange=e=>S.set({autoStart:e.target.checked}); $('#keepWeak').onchange=e=>S.set({keepWeak:e.target.checked}); $('#haptic').onchange=e=>S.set({haptic:e.target.checked});
+  $('#autoStart').onchange=e=>S.set({autoStart:e.target.checked}); $('#haptic').onchange=e=>S.set({haptic:e.target.checked});
   $('#endpoint').onchange=e=>{ S.set({endpoint:e.target.value.trim(), shared:null}); updatePending(); }; $('#token').onchange=e=>S.set({token:e.target.value.trim()});
   $('#testconn').onclick=async()=>{ $('#testresult').textContent='Testing…'; try{ const j=await get({action:'ping'}); $('#testresult').textContent='Connected'+(j.who?' as '+j.who:''); await loadShared(true); flushOutbox(); }catch(e){ $('#testresult').textContent='Not connected: '+e.message; } };
   renderChipPick(); renderShared();
