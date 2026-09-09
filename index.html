@@ -249,6 +249,12 @@ nav.bottom button.on .navlabel{background:var(--grad-90);-webkit-background-clip
     <dl class="ro" id="sharedRO"><dd>Not loaded yet.</dd></dl>
     <p class="ro" style="margin-top:10px"><a id="wbLink" href="#" target="_blank" rel="noopener">Open the Settings workbook</a></p>
   </div>
+
+  <div class="sec">
+    <h2>Voice diagnostics</h2>
+    <p class="ro" style="margin:0 0 10px">If a voice capture comes out garbled, tap this right after and paste the result into a chat so the merge logic can be checked against what this phone actually heard.</p>
+    <button id="copyDiag" class="btn small">Copy last recording's raw events</button> <span id="diagResult" class="ro"></span>
+  </div>
 </section>
 
 <nav class="bottom">
@@ -327,52 +333,76 @@ function renderChips(){
 }
 
 /* ---------- speech ---------- */
-function trimRestartOverlap(prevText, nextText){
-  // The recognizer restarts mid-recording (see sr.onend below) because Android's speech
-  // engine ends a session every so often even with continuous:true. The new session
-  // occasionally re-transcribes the last word or two of audio the previous session already
-  // finalized, so naively concatenating sessions can duplicate the tail of what was just said.
-  // Find the longest run (up to 8 words) where the end of prevText matches the start of
-  // nextText and drop that overlap from nextText before joining.
-  if(!prevText || !nextText) return nextText;
-  const norm = w => w.toLowerCase().replace(/[^a-z0-9']/g,'');
-  const prevWords = prevText.trim().split(/\s+/);
-  const nextWords = nextText.trim().split(/\s+/);
-  const max = Math.min(8, prevWords.length, nextWords.length);
-  for(let n=max; n>0; n--){
-    const tail = prevWords.slice(-n).map(norm).join(' ');
-    const head = nextWords.slice(0,n).map(norm).join(' ');
-    if(tail && tail===head) return nextWords.slice(n).join(' ');
+// Android's speech engine misbehaves in three ways that all show up as duplicated words:
+//   1. it re-emits an already-finished phrase as a second "final" result;
+//   2. a later result can contain the whole running transcript, not just the new segment;
+//   3. it ends the session every so often even with continuous:true, and the restarted session
+//      re-transcribes the last second of audio the previous one already finalized.
+// mergeSegment() folds every new piece of text into what we already have while collapsing
+// all three: exact repeats, "contains everything so far" results, and overlapping seams.
+const normText = s => String(s||'').toLowerCase().replace(/[^a-z0-9'\s]/g,'').replace(/\s+/g,' ').trim();
+function mergeSegment(acc, next, minOverlap){
+  // minOverlap: how many matching words a partial seam overlap needs before it is trimmed.
+  // 2 within a session (so a deliberate "no, no" survives); 1 at a restart seam, where a
+  // one-word echo of the previous session's tail is the common case.
+  minOverlap = minOverlap || 2;
+  acc = (acc||'').trim(); next = (next||'').trim();
+  if(!acc) return next;
+  if(!next) return acc;
+  const a = normText(acc), b = normText(next);
+  if(!b || b === a) return acc;                       // exact repeat
+  if(a.includes(' ') && b.startsWith(a + ' ')) return next;   // cumulative result: it already contains everything so far (2+ words banked, so a real repeat of one word isn't eaten)
+  if(a.endsWith(' ' + b)) return acc;                 // repeat of the tail we already have
+  const aw = acc.split(/\s+/), bw = next.split(/\s+/);
+  const max = Math.min(8, aw.length, bw.length);
+  for(let n=max; n>=minOverlap; n--){                 // partial overlap at the seam
+    if(normText(aw.slice(-n).join(' ')) === normText(bw.slice(0,n).join(' '))) return acc + ' ' + bw.slice(n).join(' ');
   }
-  return nextText;
+  return acc + ' ' + next;
 }
+let srDiag = [];         // raw recognizer events from the last recording (Settings → Voice diagnostics)
+let srT0 = 0;
+function diag(type, extra){ if(srDiag.length<300) srDiag.push(Object.assign({t:Date.now()-srT0, type}, extra||{})); }
 function startSR(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR) return false;
-  sr = new SR(); sr.continuous=true; sr.interimResults=true; sr.lang='en-US';
-  sr.onresult = e => {
-    // Android reports results cumulatively and can repeat finished phrases: rebuild from the full list every time.
-    const fin=[]; let interim='';
+  const inst = new SR(); inst.continuous=true; inst.interimResults=true; inst.lang='en-US';
+  sr = inst;
+  inst.onresult = e => {
+    if(sr!==inst) return;                             // a stale recognizer from before a restart
+    let session=''; let interim=''; const raw=[];
     for(let i=0;i<e.results.length;i++){
-      const r=e.results[i]; const t=(r[0]&&r[0].transcript||'').trim(); if(!t) continue;
-      if(r.isFinal){ if(fin[fin.length-1]!==t) fin.push(t); } else { interim=t; }   // keep only the latest interim phrase
+      const r=e.results[i]; const alt=r[0]; const t=(alt&&alt.transcript||'').trim();
+      raw.push({i, f:!!r.isFinal, c:alt?+alt.confidence.toFixed(2):null, t});
+      if(!t) continue;
+      if(r.isFinal) session = mergeSegment(session, t);
+      else interim = t;                               // keep only the latest interim phrase
     }
-    const sessionFinal = trimRestartOverlap(srBase, fin.join(' '));
-    finalText=[srBase, sessionFinal].filter(Boolean).join(' ');
-    interimText = (interim && interim!==fin[fin.length-1]) ? interim : '';
+    diag('result', {resultIndex:e.resultIndex, results:raw});
+    finalText = mergeSegment(srBase, session, 1);     // restart seam: trim even a one-word echo
+    interimText = (interim && normText(interim)!==normText(session) && !normText(finalText).endsWith(normText(interim))) ? interim : '';
     renderTranscript();
   };
-  sr.onstart = () => { if(recording) $('#hint').textContent='Listening…'; };
-  sr.onerror = e => {
+  inst.onstart = () => { diag('start'); if(recording && sr===inst) $('#hint').textContent='Listening…'; };
+  inst.onerror = e => {
+    diag('error', {error:e.error});
+    if(sr!==inst) return;
     const msgs = {'not-allowed':'Microphone blocked — allow it in Chrome site settings','service-not-allowed':'Speech service blocked','audio-capture':'No microphone available','network':'Speech needs a network connection','no-speech':'Nothing heard yet…','aborted':''};
     const m = msgs[e.error] !== undefined ? msgs[e.error] : 'Speech error: '+e.error;
     if(m) $('#hint').textContent=m;
     if(e.error==='not-allowed' || e.error==='service-not-allowed' || e.error==='audio-capture'){ srFailed = e.error; }
   };
-  sr.onend = () => { srBase = finalText; if(recording && !srFailed) { try{ sr.start(); }catch(e){} } };
-  try{ sr.start(); return true; }catch(e){ $('#hint').textContent='Could not start speech: '+e.message; return false; }
+  inst.onend = () => {
+    diag('end');
+    if(sr!==inst) return;
+    // Bank what this session produced, then restart with a brand-new recognizer so no stale
+    // results from this session can leak into the next one.
+    srBase = finalText; sr = null;
+    if(recording && !srFailed) startSR();
+  };
+  try{ inst.start(); return true; }catch(e){ $('#hint').textContent='Could not start speech: '+e.message; return false; }
 }
-function stopSR(){ if(sr){ const s=sr; sr=null; try{ s.onend=null; s.stop(); }catch(e){} } }
+function stopSR(){ if(sr){ const s=sr; sr=null; try{ s.onend=null; s.onresult=null; s.stop(); }catch(e){} } }
 function renderTranscript(){ const t=$('#transcript'); t.hidden=false; t.innerHTML = escapeHtml(finalText) + (interimText?' <span class="interim">'+escapeHtml(interimText)+'</span>':''); }
 function escapeHtml(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 
@@ -393,7 +423,7 @@ async function startRecording(force){
   if(recording) return;
   const mode = S.get().voice;
   forceAudio = !!force;
-  recording = true; inputType='voice'; srFailed=null; srBase='';
+  recording = true; inputType='voice'; srFailed=null; srBase=''; srDiag=[]; srT0=Date.now();
   finalText=''; interimText=''; renderTranscript();
   $('#rec').classList.add('on'); $('#recLabel').textContent='Stop';
   const wantAudio = forceAudio || mode==='audio' || mode==='both';
@@ -575,6 +605,12 @@ function initSettings(){
   $('#endpoint').onchange=e=>{ S.set({endpoint:e.target.value.trim(), shared:null}); updatePending(); }; $('#token').onchange=e=>S.set({token:e.target.value.trim()});
   $('#testconn').onclick=async()=>{ $('#testresult').textContent='Testing…'; try{ const j=await get({action:'ping'}); $('#testresult').textContent='Connected'+(j.who?' as '+j.who:''); await loadShared(true); flushOutbox(); }catch(e){ $('#testresult').textContent='Not connected: '+e.message; } };
   renderChipPick(); renderShared();
+  $('#copyDiag').onclick=async()=>{
+    const payload = JSON.stringify({ua:navigator.userAgent, voiceMode:S.get().voice, events:srDiag}, null, 1);
+    if(!srDiag.length){ $('#diagResult').textContent='No recording yet.'; return; }
+    try{ await navigator.clipboard.writeText(payload); $('#diagResult').textContent='Copied '+srDiag.length+' events.'; }
+    catch(e){ $('#diagResult').textContent='Could not copy — long-press to select instead.'; const pre=document.createElement('pre'); pre.className='ro'; pre.style.cssText='white-space:pre-wrap;word-break:break-all;font-size:11px;margin-top:8px'; pre.textContent=payload; $('#copyDiag').parentNode.appendChild(pre); }
+  };
 }
 
 /* ---------- share target intake ---------- */
