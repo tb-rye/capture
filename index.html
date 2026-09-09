@@ -360,6 +360,29 @@ function mergeSegment(acc, next, minOverlap){
   }
   return acc + ' ' + next;
 }
+// Some Android builds (Tina's Pixel among them) report every growing snapshot of the utterance
+// as its own "final" result: "add", "add Ritz", "add Ritz crackers", ... Concatenating those
+// garbles the text, so collapse the list first: drop any entry the following entry extends.
+// If the list shows that snapshot pattern at all, also treat a longer neighbour that keeps
+// the same opening words as a revision of the previous one (the engine re-hearing "Ritz" as
+// "Rich crackers"), since in snapshot mode that's what a same-start longer result is.
+function collapseSnapshots(list){
+  const n = list.map(normText);
+  const words = n.map(s => s ? s.split(' ') : []);
+  let snapshotMode = false;
+  for(let i=0;i<n.length-1;i++){ if(n[i] && (n[i+1]===n[i] || n[i+1].startsWith(n[i]+' '))){ snapshotMode = true; break; } }
+  const kept = [];
+  for(let i=0;i<list.length;i++){
+    if(!n[i]) continue;
+    const nx = n[i+1];
+    if(nx !== undefined){
+      if(nx === n[i] || nx.startsWith(n[i]+' ')) continue;                        // next one extends this one
+      if(snapshotMode && words[i+1].length >= words[i].length && words[i+1][0] === words[i][0]) continue; // revision of this one
+    }
+    kept.push(list[i]);
+  }
+  return kept;
+}
 let srDiag = [];         // raw recognizer events from the last recording (Settings → Voice diagnostics)
 let srT0 = 0;
 function diag(type, extra){ if(srDiag.length<300) srDiag.push(Object.assign({t:Date.now()-srT0, type}, extra||{})); }
@@ -370,15 +393,16 @@ function startSR(){
   sr = inst;
   inst.onresult = e => {
     if(sr!==inst) return;                             // a stale recognizer from before a restart
-    let session=''; let interim=''; const raw=[];
+    const finals=[]; let interim=''; const raw=[];
     for(let i=0;i<e.results.length;i++){
       const r=e.results[i]; const alt=r[0]; const t=(alt&&alt.transcript||'').trim();
-      raw.push({i, f:!!r.isFinal, c:alt?+alt.confidence.toFixed(2):null, t});
+      raw.push({i, f:!!r.isFinal, c:alt?+(+alt.confidence||0).toFixed(2):null, t});
       if(!t) continue;
-      if(r.isFinal) session = mergeSegment(session, t);
+      if(r.isFinal) finals.push(t);
       else interim = t;                               // keep only the latest interim phrase
     }
     diag('result', {resultIndex:e.resultIndex, results:raw});
+    const session = collapseSnapshots(finals).reduce((acc,t)=>mergeSegment(acc,t), '');
     finalText = mergeSegment(srBase, session, 1);     // restart seam: trim even a one-word echo
     interimText = (interim && normText(interim)!==normText(session) && !normText(finalText).endsWith(normText(interim))) ? interim : '';
     renderTranscript();
