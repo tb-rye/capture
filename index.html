@@ -254,6 +254,7 @@ nav.bottom button.on .navlabel{background:var(--grad-90);-webkit-background-clip
     <h2>Voice diagnostics</h2>
     <p class="ro" style="margin:0 0 10px">If a voice capture comes out garbled, tap this right after and paste the result into a chat so the merge logic can be checked against what this phone actually heard.</p>
     <button id="copyDiag" class="btn small">Copy last recording's raw events</button> <span id="diagResult" class="ro"></span>
+    <p class="ro" style="margin:12px 0 0">App build <span id="buildStamp"></span></p>
   </div>
 </section>
 
@@ -269,6 +270,7 @@ nav.bottom button.on .navlabel{background:var(--grad-90);-webkit-background-clip
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
+const APP_BUILD = '2026-09-09.5';
 const DEFAULT_TAGS = ['To-do','Kids','Household','Family','Work','TPT','Career','Idea','Reading'];
 
 /* ---------- device settings ---------- */
@@ -351,11 +353,11 @@ function mergeSegment(acc, next, minOverlap){
   if(!next) return acc;
   const a = normText(acc), b = normText(next);
   if(!b || b === a) return acc;                       // exact repeat
-  if(a.includes(' ') && b.startsWith(a + ' ')) return next;   // cumulative result: it already contains everything so far (2+ words banked, so a real repeat of one word isn't eaten)
+  if((a.includes(' ') || minOverlap===1) && b.startsWith(a + ' ')) return next;   // cumulative result: it already contains everything so far (in-session this needs 2+ words banked so a real repeat of one word isn't eaten)
   if(a.endsWith(' ' + b)) return acc;                 // repeat of the tail we already have
   const aw = acc.split(/\s+/), bw = next.split(/\s+/);
-  const max = Math.min(8, aw.length, bw.length);
-  for(let n=max; n>=minOverlap; n--){                 // partial overlap at the seam
+  const max = Math.min(aw.length, bw.length);
+  for(let n=max; n>=minOverlap; n--){                 // partial overlap at the seam — longest match first, no cap: a long identical run is a genuine echo
     if(normText(aw.slice(-n).join(' ')) === normText(bw.slice(0,n).join(' '))) return acc + ' ' + bw.slice(n).join(' ');
   }
   return acc + ' ' + next;
@@ -628,9 +630,9 @@ function initSettings(){
   $('#autoStart').onchange=e=>S.set({autoStart:e.target.checked}); $('#haptic').onchange=e=>S.set({haptic:e.target.checked});
   $('#endpoint').onchange=e=>{ S.set({endpoint:e.target.value.trim(), shared:null}); updatePending(); }; $('#token').onchange=e=>S.set({token:e.target.value.trim()});
   $('#testconn').onclick=async()=>{ $('#testresult').textContent='Testing…'; try{ const j=await get({action:'ping'}); $('#testresult').textContent='Connected'+(j.who?' as '+j.who:''); await loadShared(true); flushOutbox(); }catch(e){ $('#testresult').textContent='Not connected: '+e.message; } };
-  renderChipPick(); renderShared();
+  renderChipPick(); renderShared(); $('#buildStamp').textContent=APP_BUILD;
   $('#copyDiag').onclick=async()=>{
-    const payload = JSON.stringify({ua:navigator.userAgent, voiceMode:S.get().voice, events:srDiag}, null, 1);
+    const payload = JSON.stringify({build:APP_BUILD, ua:navigator.userAgent, voiceMode:S.get().voice, events:srDiag}, null, 1);
     if(!srDiag.length){ $('#diagResult').textContent='No recording yet.'; return; }
     try{ await navigator.clipboard.writeText(payload); $('#diagResult').textContent='Copied '+srDiag.length+' events.'; }
     catch(e){ $('#diagResult').textContent='Could not copy — long-press to select instead.'; const pre=document.createElement('pre'); pre.className='ro'; pre.style.cssText='white-space:pre-wrap;word-break:break-all;font-size:11px;margin-top:8px'; pre.textContent=payload; $('#copyDiag').parentNode.appendChild(pre); }

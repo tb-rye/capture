@@ -1,5 +1,5 @@
 /* Capture service worker: offline shell + share target intake */
-const CACHE = 'capture-v4';
+const CACHE = 'capture-v5';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', e => {
@@ -37,11 +37,12 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (e.request.method !== 'GET') return;
-  // Same-origin shell: cache first, refresh in background
+  // Same-origin shell: network first so a new deploy shows up on the next open;
+  // fall back to the cached copy when offline.
   if (url.origin === location.origin) {
-    e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => {
-      const net = fetch(e.request).then(r => { if (r && r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone())); return r; }).catch(() => hit);
-      return hit || net;
-    }));
+    e.respondWith(fetch(e.request).then(r => {
+      if (r && r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone()));
+      return r;
+    }).catch(() => caches.match(e.request, { ignoreSearch: true })));
   }
 });
