@@ -327,6 +327,25 @@ function renderChips(){
 }
 
 /* ---------- speech ---------- */
+function trimRestartOverlap(prevText, nextText){
+  // The recognizer restarts mid-recording (see sr.onend below) because Android's speech
+  // engine ends a session every so often even with continuous:true. The new session
+  // occasionally re-transcribes the last word or two of audio the previous session already
+  // finalized, so naively concatenating sessions can duplicate the tail of what was just said.
+  // Find the longest run (up to 8 words) where the end of prevText matches the start of
+  // nextText and drop that overlap from nextText before joining.
+  if(!prevText || !nextText) return nextText;
+  const norm = w => w.toLowerCase().replace(/[^a-z0-9']/g,'');
+  const prevWords = prevText.trim().split(/\s+/);
+  const nextWords = nextText.trim().split(/\s+/);
+  const max = Math.min(8, prevWords.length, nextWords.length);
+  for(let n=max; n>0; n--){
+    const tail = prevWords.slice(-n).map(norm).join(' ');
+    const head = nextWords.slice(0,n).map(norm).join(' ');
+    if(tail && tail===head) return nextWords.slice(n).join(' ');
+  }
+  return nextText;
+}
 function startSR(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR) return false;
@@ -338,7 +357,8 @@ function startSR(){
       const r=e.results[i]; const t=(r[0]&&r[0].transcript||'').trim(); if(!t) continue;
       if(r.isFinal){ if(fin[fin.length-1]!==t) fin.push(t); } else { interim=t; }   // keep only the latest interim phrase
     }
-    finalText=[srBase, ...fin].filter(Boolean).join(' ');
+    const sessionFinal = trimRestartOverlap(srBase, fin.join(' '));
+    finalText=[srBase, sessionFinal].filter(Boolean).join(' ');
     interimText = (interim && interim!==fin[fin.length-1]) ? interim : '';
     renderTranscript();
   };
